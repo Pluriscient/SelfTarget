@@ -13,7 +13,7 @@ from selftarget.profile import fetchIndelSizeCounts, getProfileCounts, fetchRead
 from selftarget.view import plotProfiles
 
 INDELGENTARGET_EXE = os.getenv("INDELGENTARGET_EXE", "C:/Users/fa9/postdoc/indelmap/build/Release/indelgentarget.exe")
-DEFAULT_MODEL = 'model_output_10000_0.01000000_0.01000000_-0.607_theta.txt_cf0.txt' 
+DEFAULT_MODEL = 'model_output_10000_0.01000000_0.01000000_-0.607_theta.txt_cf0.txt'
 
 def setIndelGenTargetExeLoc(val):
     global INDELGENTARGET_EXE
@@ -38,19 +38,31 @@ def writePredictedRepReadsToFile(p1, rep_reads, fout):
         if cnt < 0.5: break
         fout.write(u'%d\t%s\t%s\n' % (idx, rep_reads[indel], indel))
         idx += 1
-        
-def predictMutations(theta_file, target_seq, pam_idx, add_null=True):
 
+def predictMutations(theta_file, target_seq, pam_idx, add_null=True):
+    """ As far as we understand:
+    theta: Model to use to make predictions
+    target_seq: Sequence in which CRISPR-CAS9 is being used and predictions should be made of
+    pam_idx: Index of target_seq at which cut is made, or 4 above it (if Gedeon is to be believed, which seems to be the case)
+    :returns ???
+    """
     theta, train_set, theta_feature_columns = readTheta(theta_file)
 
     #generate indels
     left_trim = 0
+    # Random file name to put generated indels at
     tmp_genindels_file = 'tmp_genindels_%s_%d.txt' % (target_seq, random.randint(0,100000))
+    # Use EXE to generate indels for the given target and pam_idx and put them in the random file
     cmd = INDELGENTARGET_EXE + ' %s %d %s' % (target_seq, pam_idx, tmp_genindels_file)
     print(cmd); subprocess.check_call(cmd.split())
+
+    # Parse all the generated indels
     rep_reads = fetchRepReads(tmp_genindels_file)
-    isize, smallest_indel = min([(tokFullIndel(x)[1],x) for x in rep_reads]) if len(rep_reads) > 0 else (0,'-') 
+    # check for the 10 boundary? ???
+    isize, smallest_indel = min([(tokFullIndel(x)[1],x) for x in rep_reads]) if len(rep_reads) > 0 else (0,'-')
     if isize > 0: left_trim = target_seq.find(rep_reads[smallest_indel][:10])
+
+
 
     #compute features for all generated indels
     tmp_features_file = 'tmp_features_%s_%d.txt' % (target_seq, random.randint(0,100000))
@@ -68,6 +80,8 @@ def predictMutations(theta_file, target_seq, pam_idx, add_null=True):
 
     #Predict the profile
     p_predict, _ = computePredictedProfile(feature_data, theta, theta_feature_columns)
+
+    # some other vague stuff
     in_frame, out_frame, _ = fetchIndelSizeCounts(p_predict)
     in_frame_perc = in_frame*100.0/(in_frame + out_frame)
     if add_null:
@@ -118,18 +132,18 @@ def predictProfilesBulk(theta_file, target_file):
         profiles_and_rr.append((row['ID'], prof, rep_reads, in_frame))
     f.close()
     return profiles_and_rr
-            
+
 def writeProfilesToFile(out_prefix, profiles_and_rr, write_rr = False):
     fout = io.open(out_prefix + '_predictedindelsummary.txt', 'w')
     if write_rr: fout_rr = io.open(out_prefix + '_predictedreads.txt', 'w')
     for (guide_id, prof, rep_reads, in_frame) in profiles_and_rr:
-        if len(profiles_and_rr) > 1: 
+        if len(profiles_and_rr) > 1:
             id_str = u'@@@%s\t%.3f\n' % (guide_id, in_frame)
             fout.write(id_str)
-            if write_rr: 
+            if write_rr:
                 fout_rr.write(id_str)
         writePredictedProfileToSummary(prof, fout)
-        if write_rr: 
+        if write_rr:
             writePredictedRepReadsToFile(prof, rep_reads, fout_rr)
     fout.close()
 
@@ -139,14 +153,14 @@ def predictMutationsSingle(target_seq, pam_idx, out_prefix, theta_file = DEFAULT
     print('Writing to file...')
     writeProfilesToFile(out_prefix, [('Test Guide', p_predict, rep_reads, in_frame_perc)], write_rr=True)
     print('Done!')
-    
+
 def predictMutationsBulk(target_file, out_prefix, theta_file = DEFAULT_MODEL):
     #Target File: a tab-delimited file with columns:  ID, Target, PAM Index
     print('Predicting mutations...')
     profiles_and_rr = predictProfilesBulk(theta_file, target_file)
     print('Writing to file...')
     writeProfilesToFile(out_prefix, profiles_and_rr, write_rr=True)
-    print('Done!')    
+    print('Done!')
 
 
 def main():
